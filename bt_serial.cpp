@@ -9,6 +9,8 @@
 #include <string>
 #include <chrono>
 
+using namespace std::chrono_literals;
+
 class BTserialNode : public rclcpp::Node
 {
 public:
@@ -18,7 +20,8 @@ public:
         int fd = open("/dev/rfcomm0", O_RDWR | O_NOCTTY | O_SYNC);
         if (fd < 0){
             perror("Error opening serial port");
-            return -1;
+            rclcpp::shutdown();
+            return;
         }
 
         //publishr
@@ -26,7 +29,7 @@ public:
         auto timer_callback = [this]() -> void
         {
             char buffer[256];
-            ssize_t n = read(fd, buffer, size(buffer));
+            int n = read(this->fd, buffer, std::size(buffer));
             if(n==-1)
             {
                 perror("Error opening serial port");
@@ -42,8 +45,8 @@ public:
         //subscriber
         auto sub_callback = [this](std_msgs::msg::String::SharedPtr msg) -> void
         {
-            write(fd, msg->data.c_str(), msg->data.size());
-            write(fd, "\n", 1);
+            write(this->fd, msg->data.c_str(), msg->data.size());
+            write(this->fd, "\n", 1);
         };
         subscription_ = this->create_subscription<std_msgs::msg::String>("bt_send", 10, sub_callback);
     }
