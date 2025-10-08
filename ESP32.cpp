@@ -18,7 +18,7 @@ void loop() {
     Serial.print("Received via BT: ");
     Serial.println(msg);
 
-    SerialBT.println("ACK:" + msg);
+    //SerialBT.println("ACK:" + msg);
   }
   
 
