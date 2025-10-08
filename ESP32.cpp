@@ -12,7 +12,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  SerialBT.println("Hello");
+  //SerialBT.println("Hello");
   if (SerialBT.available()) {
     String msg = SerialBT.readStringUntil('\n');
     Serial.print("Received via BT: ");
@@ -22,6 +22,6 @@ void loop() {
   }
   
 
-  delay(1000);
+  delay(100);
 
 }
