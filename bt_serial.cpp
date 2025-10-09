@@ -13,11 +13,17 @@ using namespace std::chrono_literals;
 
 class BTserialNode : public rclcpp::Node
 {
+private:
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
+    int fd;
+
 public:
     BTserialNode()
         : Node("BTserial_node")
     {
-        int fd = open("/dev/rfcomm0", O_RDWR | O_NOCTTY | O_SYNC);
+        fd = open("/dev/rfcomm0", O_RDWR | O_NOCTTY | O_NONBLOCK);
         if (fd < 0){
             perror("Error opening serial port");
             rclcpp::shutdown();
@@ -30,17 +36,18 @@ public:
         {
             char buffer[256];
             int n = read(this->fd, buffer, std::size(buffer));
-            if(n==-1)
-            {
-                perror("Error opening serial port");
-                rclcpp::shutdown();
+            if(n==-1){
+                if(errno != EAGAIN){
+                    perror("Error reading serial port");
+                    rclcpp::shutdown();
+                }
                 return;
             }
             auto message = std_msgs::msg::String();
             message.data = std::string(buffer, n);
             this->publisher_->publish(message);
         };
-        timer_ = this->create_wall_timer(5000ms, timer_callback);
+        timer_ = this->create_wall_timer(100ms, timer_callback);
 
         //subscriber
         auto sub_callback = [this](std_msgs::msg::String::SharedPtr msg) -> void
@@ -51,11 +58,6 @@ public:
         subscription_ = this->create_subscription<std_msgs::msg::String>("bt_send", 10, sub_callback);
     }
 
-private:
-    rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
-    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
-    int fd;
 };
 
 int main(int argc, char **argv)
