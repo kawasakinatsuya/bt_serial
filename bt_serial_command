@@ -1,0 +1,132 @@
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <chrono>
+#include <termios.h>
+#include <stdio.h>
+
+using namespace std::chrono_literals;
+
+class BTserialNode : public rclcpp::Node
+{
+private:
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
+    int fd;
+    int speed = 8000;
+    char command[30];
+
+    void timer_callback(){
+        char buffer[256];
+        int n = read(this->fd, buffer, std::size(buffer));
+        if (n == -1)
+        {
+            if (errno != EAGAIN)
+            {
+                perror("Error reading serial port");
+                rclcpp::shutdown();
+            }
+            return;
+        }
+        auto message = std_msgs::msg::String();
+        message.data = std::string(buffer, n);
+        publisher_->publish(message);
+    }
+
+    void key_input_thread(){
+        struct termios new, old;
+        tcgetattr(STDIN_FILENO, &old);
+        new = old;
+        new.c_lflag &= ~ICANON;
+        new.c_lflag &= ~ECHO;
+        tcsetattr(STDIN_FILENO, TCSANOW, &new);
+
+        bool w_pressed = false;
+        char ch;
+        while (rclcpp::ok())
+        {
+            int n = read(STDIN_FILENO, &ch, 1);
+            if(n > 0){
+                if(ch == 'w'){
+                    if(!w_pressed){
+                        sprintf(command, "1,s%d\n2,s%d\n", speed, speed);
+                        write(fd, command, strlen(command));
+                        RCLCPP_INFO(this->get_logger(), "sent:w_pressed");
+                        w_pressed = true;
+                    }
+                }
+            }
+
+            else if(w_pressed){
+                sprintf(command, "1,s0\n2,s0\n");
+                write(fd, command, strlen(command));
+                RCLCPP_INFO(this->get_logger(), "sent:w_pressed");
+                w_pressed = false;
+            }
+            std::this_thread::sleep_for(20ms);
+        }
+        tcsetattr(STDIN_FILENO, TCSANOW, &old);
+    }
+
+public:
+    BTserialNode()
+        : Node("BTserial_node")
+    {
+        fd = open("/dev/rfcomm0", O_RDWR | O_NOCTTY | O_NONBLOCK);
+        if (fd < 0)
+        {
+            perror("Error opening serial port");
+            rclcpp::shutdown();
+            return;
+        }
+
+        // publisher
+        publisher_ = this->create_publisher<std_msgs::msg::String>("bt_receive", 10);
+        auto timer_callback = [this]() -> void
+        {
+            char buffer[256];
+            int n = read(this->fd, buffer, std::size(buffer));
+            if (n == -1)
+            {
+                if (errno != EAGAIN)
+                {
+                    perror("Error reading serial port");
+                    rclcpp::shutdown();
+                }
+                return;
+            }
+            auto message = std_msgs::msg::String();
+            message.data = std::string(buffer, n);
+            this->publisher_->publish(message);
+        };
+        timer_ = this->create_wall_timer(100ms, timer_callback);
+
+        // subscriber
+        auto sub_callback = [this](std_msgs::msg::String::SharedPtr msg) -> void
+        {
+            write(this->fd, msg->data.c_str(), msg->data.size());
+            write(this->fd, "\n", 1);
+        };
+        subscription_ = this->create_subscription<std_msgs::msg::String>("bt_send", 10, sub_callback);
+
+        std::thread th(&BTserialNode::key_input_thread, this);
+        th.detach();
+    }
+
+
+};
+
+int main(int argc, char **argv)
+{
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<BTserialNode>());
+    rclcpp::shutdown();
+    return 0;
+}
