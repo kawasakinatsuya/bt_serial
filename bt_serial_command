@@ -108,14 +108,6 @@ public:
         };
         timer_ = this->create_wall_timer(100ms, timer_callback);
 
-        // subscriber
-        auto sub_callback = [this](std_msgs::msg::String::SharedPtr msg) -> void
-        {
-            write(this->fd, msg->data.c_str(), msg->data.size());
-            write(this->fd, "\n", 1);
-        };
-        subscription_ = this->create_subscription<std_msgs::msg::String>("bt_send", 10, sub_callback);
-
         std::thread th(&BTserialNode::key_input_thread, this);
         th.detach();
     }
