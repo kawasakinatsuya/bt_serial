@@ -41,12 +41,12 @@ private:
     }
 
     void key_input_thread(){
-        struct termios new, old;
-        tcgetattr(STDIN_FILENO, &old);
-        new = old;
-        new.c_lflag &= ~ICANON;
-        new.c_lflag &= ~ECHO;
-        tcsetattr(STDIN_FILENO, TCSANOW, &new);
+        struct termios newt, oldt;
+        tcgetattr(STDIN_FILENO, &oldt);
+        newt = oldt;
+        newt.c_lflag &= ~ICANON;
+        newt.c_lflag &= ~ECHO;
+        tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 
         bool w_pressed = false;
         char ch;
@@ -56,7 +56,7 @@ private:
             if(n > 0){
                 if(ch == 'w'){
                     if(!w_pressed){
-                        sprintf(command, "1,s%d\n2,s%d\n", speed, speed);
+                        sprintf(command, "1,s%d\n2,s%d\n;", speed, speed);
                         write(fd, command, strlen(command));
                         RCLCPP_INFO(this->get_logger(), "sent:w_pressed");
                         w_pressed = true;
@@ -72,7 +72,7 @@ private:
             }
             std::this_thread::sleep_for(20ms);
         }
-        tcsetattr(STDIN_FILENO, TCSANOW, &old);
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     }
 
 public:
