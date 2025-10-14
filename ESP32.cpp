@@ -14,11 +14,9 @@ void loop() {
   // put your main code here, to run repeatedly:
   //SerialBT.println("Hello");
   if (SerialBT.available()) {
-    String msg = SerialBT.readStringUntil('\n');
+    String msg = SerialBT.readStringUntil(';');
     Serial.print("Received via BT: ");
     Serial.println(msg);
-
-    //SerialBT.println("ACK:" + msg);
   }
   
 
