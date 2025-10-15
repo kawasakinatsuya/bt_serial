@@ -1,0 +1,198 @@
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <chrono>
+#include <termios.h>
+#include <stdio.h>
+#include <GLFW/glfw3.h>
+
+using namespace std::chrono_literals;
+
+GLFWwindow* window = nullptr;
+int fd_m, fd_r, fd_l;
+int speed = 8000;
+char command[30];
+int mode = 0;
+
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods){
+    if(action == GLFW_PRESS){
+        switch(key){
+            case GLFW_KEY_M:
+             mode++;
+             if(mode > 5){
+                        mode = 0;
+                    }
+                    RCLCPP_INFO(this->get_logger(), "mode:%d",mode);
+        }
+    }
+}
+
+class BTserialNode : public rclcpp::Node
+{
+private:
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
+        
+    void timer_callback(){
+        char buffer[256];
+        int n = read(this->fd_m, buffer, std::size(buffer));
+        if (n == -1)
+        {
+            if (errno != EAGAIN)
+            {
+                perror("Error reading serial port");
+                rclcpp::shutdown();
+            }
+            return;
+        }
+        auto message = std_msgs::msg::String();
+        message.data = std::string(buffer, n);
+        publisher_->publish(message);
+    }
+
+    void key_input_thread(){
+        struct termios newt, oldt;
+        tcgetattr(STDIN_FILENO, &oldt);
+        newt = oldt;
+        newt.c_lflag &= ~ICANON;
+        newt.c_lflag &= ~ECHO;
+        tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+        char ch;
+        while (rclcpp::ok())
+        {
+            int n = read(STDIN_FILENO, &ch, 1);
+            if(n > 0){
+                if(ch == 'w'){
+                    sprintf(command, "1,s%d\n2,s%d\n;", speed, speed);
+                    write(fd_m, command, strlen(command));
+                    RCLCPP_INFO(this->get_logger(), "go_straight!(sent:w_pressed)");
+                }
+
+                else if(ch == 'd'){
+                    sprintf(command, "1,s%d\n2,s%d\n;", speed/2, -speed/2);
+                    write(fd_m, command, strlen(command));
+                    RCLCPP_INFO(this->get_logger(), "turn_right!(sent:d_pressed)");
+                }
+
+                else if(ch == 'a'){
+                    sprintf(command, "1,s%d\n2,s%d\n;", -speed/2, speed/2);
+                    write(fd_m, command, strlen(command));
+                    RCLCPP_INFO(this->get_logger(), "turn_left!(sent:a_pressed)");
+                }
+
+                else if(ch == 'x'){
+                    sprintf(command, "1,s%d\n2,s%d\n;", -speed, -speed);
+                    write(fd_m, command, strlen(command));
+                    RCLCPP_INFO(this->get_logger(), "go_back!(sent:x_pressed)");
+                }
+
+                else if(ch == 'c'){
+                    if( (speed + 1000) < 10000){
+                        speed += 1000;
+                        RCLCPP_INFO(this>get_logger(), "speed:%d\n(if you want to decrease, press 'v')", speed);
+                    }
+                }
+
+                else if(ch == 'v'){
+                    if( (speed - 1000) > 0){
+                        speed -= 1000;
+                        RCLCPP_INFO(this>get_logger(), "speed:%d\n(if you want to increase, press 'c')", speed);
+                    }
+                }
+
+                else if(ch == 's'){
+                    sprintf(command, "1,s0\n2,s0\n;");
+                    write(fd_m, command, strlen(command));
+                    RCLCPP_INFO(this->get_logger(), "stop!(sent:s_pressed)");
+                }
+                
+                else if(ch == 'm'){
+                    mode++;
+                    if(mode > 5){
+                        mode = 0;
+                    }
+                    RCLCPP_INFO(this->get_logger(), "mode:%d",mode);
+                }
+                else if(ch == '\n'){
+                    sprintf(command, "%d%d\n;", mode, mode);
+                    write(fd_r, command, strlen(command));
+                    write(fd_l, command, strlen(command));
+                    RCLCPP_INFO(this->get_logger(), "sent:mode%d",mode);
+                }
+            }
+
+            std::this_thread::sleep_for(20ms);
+        }
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    }
+
+public:
+    BTserialNode()
+        : Node("BTserial_node")
+    {
+        fd_m = open("/dev/rfcomm0", O_RDWR | O_NOCTTY | O_NONBLOCK);
+        if (fd_m < 0)
+        {
+            perror("Error opening /dev/rfcomm0");
+            rclcpp::shutdown();
+            return;
+        }
+
+        fd_r = open("/dev/rfcomm1", O_RDWR | O_NOCTTY | O_NONBLOCK);
+        if (fd_r < 0)
+        {
+            perror("Error opening /dev/rfcomm1");
+            rclcpp::shutdown();
+            return;
+        }
+
+        // fd_l = open("/dev/rfcomm2", O_RDWR | O_NOCTTY | O_NONBLOCK);
+        // if (fd_l < 0){
+        //     perror("Error opening /dev/rfcomm2");
+        //     rclcpp::shutdown();
+        //     return;
+        // }
+
+        // publisher
+        publisher_ = this->create_publisher<std_msgs::msg::String>("bt_receive", 10);
+        auto timer_callback = [this]() -> void
+        {
+            char buffer[256];
+            int p1 = read(this->fd_m, buffer, std::size(buffer));
+            if (p1 == -1)
+            {
+                if (errno != EAGAIN)
+                {
+                    perror("Error reading serial port");
+                    rclcpp::shutdown();
+                }
+                return;
+            }
+            auto message = std_msgs::msg::String();
+            message.data = std::string(buffer, p1);
+            this->publisher_->publish(message);
+        };
+        timer_ = this->create_wall_timer(100ms, timer_callback);
+
+        std::thread th(&BTserialNode::key_input_thread, this);
+        th.detach();
+    }
+
+
+};
+
+int main(int argc, char **argv)
+{
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<BTserialNode>());
+    rclcpp::shutdown();
+    return 0;
+}
