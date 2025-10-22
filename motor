@@ -1,0 +1,49 @@
+#include "BluetoothSerial.h"
+
+BluetoothSerial SerialBT;
+
+const int TX2_PIN = 17; 
+const int RX2_PIN = 16;
+const int UART_BAUD = 9600;
+
+String buffer = "";  // 受信バッファ
+
+void setup() {
+  Serial.begin(11520); 
+  Serial2.begin(UART_BAUD, SERIAL_8N1, RX2_PIN, TX2_PIN); 
+  SerialBT.begin("MOTOR");
+  Serial.println("Bluetooth MOTOR ready");
+}
+
+void loop() {
+  while (SerialBT.available()) {
+    char c = SerialBT.read();
+
+    if (c == ';') {
+      // ';' が来たらバッファをまとめて送信（;は含めない）
+      if (buffer.length() > 0) {
+        Serial.print("Send to Motor: ");
+        Serial.println(buffer);
+
+        Serial2.print(buffer);
+        buffer = "";            // バッファクリア
+      }
+    } 
+    else {
+      buffer += c; // ';' 以外はバッファにためる
+    }
+  }
+
+  // while (Serial2.available()) {
+  //   String recv = Serial2.readStringUntil('\r');
+  //   if (recv.length() > 0) {
+  //     Serial.print("From Kangaroo: ");
+  //     Serial.println(recv);
+  //     SerialBT.print("From Kangaroo: ");
+  //     SerialBT.println(recv);
+  //   }
+  // }
+
+
+  delay(1);
+}
